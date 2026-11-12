@@ -15,6 +15,8 @@ T="$(mktemp -d -t call-recorder-permissions)"
 WAIT="${1:-100}"
 
 pkill -f "$PATTERN" 2>/dev/null; sleep 1
+# if the Terminal window is closed or Ctrl-C is pressed, never leave the recorder running
+trap 'pkill -f "$PATTERN" 2>/dev/null; rm -rf "$T"' EXIT HUP INT TERM
 
 echo "$(t "Starting «Call Recorder»." "Avvio «Call Recorder».")"
 echo "$(t "One or two macOS dialogs should appear on screen: allow them." "Sullo schermo devono comparire uno o due pop-up di macOS: dai il consenso.")"
