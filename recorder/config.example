@@ -1,0 +1,51 @@
+# call-rec-transcript configuration
+# One KEY=value per line. Remove the # in front of a line to change it.
+# Environment variables with the same name override this file.
+
+# Where the call notes (.md) are written. Can be an Obsidian vault folder.
+# CRT_NOTES_DIR=~/Documents/Call Notes
+
+# One folder per call: audio, transcript, recorder log.
+# CRT_RECORDINGS_DIR=~/Documents/Call Notes/recordings
+
+# Where a copy of each transcript goes. Empty = <notes>/transcripts. off = no copy.
+# CRT_TRANSCRIPTS_DIR=
+
+# Where the PDF of the note goes. Empty = the notes folder. off = no PDF. Example for iCloud Drive: ~/Library/Mobile Documents/com~apple~CloudDocs/Call Notes
+# CRT_PDF_DIR=
+
+# Language spoken in calls: auto, it, en, or any whisper language code.
+# CRT_LANG=auto
+
+# Language of the recorder's messages: auto, en, it.
+# CRT_UI_LANG=auto
+
+# Your name, used in the note (optional). Empty = 'the person recording'.
+# CRT_USER_NAME=
+
+# Write a note with Claude after each call: on/off.
+# CRT_NOTE=on
+
+# auto (API if ANTHROPIC_API_KEY is set, else the claude CLI), api, cli.
+# CRT_NOTE_ENGINE=auto
+
+# Model used on the API path.
+# CRT_NOTE_MODEL=claude-sonnet-5-5
+
+# Keep the original WAV files (about 2 GB per hour) instead of compressing to m4a.
+# CRT_KEEP_WAV=off
+
+# Put a YAML header (title, date, tags) at the top of the note.
+# CRT_FRONTMATTER=on
+
+# Where build.sh puts Call Recorder.app and the double-click launchers.
+# CRT_INSTALL_DIR=~/Applications/Call Recorder
+
+# Where the whisper models are.
+# CRT_MODEL_DIR=~/.cache/whisper-cpp
+
+# Threads for whisper-cli. Empty = automatic.
+# CRT_WHISPER_THREADS=
+
+# Path to Chrome/Chromium/Edge/Brave for the PDF. Empty = look in /Applications.
+# CRT_CHROME=

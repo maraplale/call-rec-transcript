@@ -1,0 +1,345 @@
+#!/bin/bash
+# rec — records a call, transcribes it on this Mac and writes a note with Claude.
+#
+#   rec "client kickoff"              start; ENTER (or Ctrl-C) to stop
+#   rec --speakerphone "plumber"      phone on speakerphone next to the Mac: microphone only,
+#                                     both voices on one track (no YOU / OTHERS)
+#   rec --no-note <title>             record and transcribe, no Claude
+#   rec --keep-wav <title>            do not compress the audio at the end (~2 GB per hour)
+#   rec --lang en <title>             language of the call (auto, it, en, ...)
+#   rec --resume <folder|last>        redo transcription + note of a recording already made
+#   rec --keep-echo / --keep-hallucinations   turn off the transcript filters
+#
+# Italian aliases: --viva-voce, --senza-nota, --tieni-wav, --lingua, --riprendi,
+#                  --tieni-eco, --tieni-inventate
+#
+# START IT FROM YOUR OWN TERMINAL (or with the double-click launcher). macOS attributes the
+# system-audio permission to the process responsible for the launch: started by another
+# program (an agent, an automation), the OTHERS track comes out silent with no error.
+#
+# Settings: ~/.config/call-rec-transcript/config (see config.example). At the end: note in the
+# notes folder, transcript copy, PDF, audio compressed, pointer in .../last-recording.
+set -uo pipefail
+BASE="$(cd "$(dirname "$0")" && pwd)"
+eval "$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+# A .command launched from the Finder may inherit a non-UTF-8 locale: bash then mangles
+# non-ASCII bytes. Force UTF-8 (after the configuration has read the real locale).
+if [ "$CRT_UI_LANG" = it ]; then export LC_ALL="it_IT.UTF-8"; else export LC_ALL="en_US.UTF-8"; fi
+export LANG="$LC_ALL"
+
+t() { if [ "$CRT_UI_LANG" = it ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+
+APPDIR="$CRT_INSTALL_DIR/Call Recorder.app"
+[ -d "$APPDIR" ] || [ ! -d "$BASE/Call Recorder.app" ] || APPDIR="$BASE/Call Recorder.app"
+APPBIN="$APPDIR/Contents/MacOS/CallRecorder"
+PATTERN="Call Recorder.app/Contents/MacOS/CallRecorder"
+
+MAKE_NOTE="$CRT_NOTE"; RESUME=""; KEEP_WAV="$CRT_KEEP_WAV"; SPEAKERPHONE="${REC_SPEAKERPHONE:-0}"
+LANGUAGE="$CRT_LANG"; FILTER_FLAGS=()
+while [[ "${1:-}" == -* ]]; do
+  case "$1" in
+    --no-note|--senza-nota)     MAKE_NOTE=0; shift;;
+    --resume|--riprendi)        shift
+                                if [ $# -gt 0 ] && [[ "$1" != -* ]]; then RESUME="$1"; shift; else RESUME=last; fi;;
+    --lang|--lingua)            shift
+                                if [ $# -gt 0 ] && [[ "$1" != -* ]]; then LANGUAGE="$1"; shift; fi;;
+    --keep-wav|--tieni-wav)     KEEP_WAV=1; shift;;
+    --speakerphone|--viva-voce) SPEAKERPHONE=1; shift;;
+    --keep-echo|--tieni-eco)    FILTER_FLAGS+=(--keep-echo); shift;;
+    --keep-hallucinations|--tieni-inventate) FILTER_FLAGS+=(--keep-hallucinations); shift;;
+    -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0;;
+    --) shift; break;;
+    *) echo "$(t "unknown option" "opzione sconosciuta"): $1"; exit 1;;
+  esac
+done
+
+TITLE="${*:-}"
+[ -n "$TITLE" ] || TITLE="$(t call riunione)"
+slugify() { python3 -c "import sys,unicodedata,re; t=unicodedata.normalize('NFKD',sys.argv[1]).encode('ascii','ignore').decode().lower(); print(re.sub(r'[^a-z0-9]+','-',t).strip('-')[:60].strip('-') or 'call')" "$1"; }
+
+# pointer to the last recording, so you (or Claude) can find the results
+mkdir -p "$CRT_STATE_DIR"
+remember() {  # remember KEY VALUE — rewrites one line of the pointer file
+  local tmp; tmp="$(mktemp "$CRT_STATE_DIR/.last.XXXXXX")"
+  { grep -v "^$1=" "$CRT_LAST" 2>/dev/null; echo "$1=$2"; } > "$tmp" && mv "$tmp" "$CRT_LAST"
+}
+
+# ─────────────────────────────── 1. recording
+if [ -n "$RESUME" ]; then
+  if [ "$RESUME" = last ]; then
+    SESS="$(sed -n 's/^session=//p' "$CRT_LAST" 2>/dev/null)"
+  elif [ -d "$RESUME" ]; then
+    SESS="$(cd "$RESUME" && pwd)"
+  else
+    SESS="$CRT_RECORDINGS_DIR/$RESUME"
+  fi
+  [ -n "$SESS" ] && [ -d "$SESS" ] || { echo "$(t "folder not found" "cartella inesistente"): ${SESS:-$RESUME}"; exit 1; }
+  if [ -f "$SESS/title" ]; then TITLE="$(cat "$SESS/title")"
+  else TITLE="$(basename "$SESS" | sed 's/^[0-9-]*-[0-9]\{4\}-//' | tr '-' ' ')"; fi
+  [ -f "$SESS/speakerphone" ] && SPEAKERPHONE=1
+  # if the audio was already compressed, transcribing again needs the WAVs back
+  for pair in "you.m4a:mic.wav" "call.m4a:mic.wav" "others.m4a:system.wav"; do
+    [ -f "$SESS/${pair#*:}" ] || [ ! -f "$SESS/${pair%%:*}" ] || \
+      ffmpeg -y -hide_banner -loglevel error -i "$SESS/${pair%%:*}" "$SESS/${pair#*:}"
+  done
+  rm -f "$CRT_LAST"; remember session "$SESS"; remember title "$TITLE"
+else
+  [ -x "$APPBIN" ] || { echo "$(t "Call Recorder.app is missing: run build.sh first" "manca Call Recorder.app: lancia prima build.sh")"; exit 1; }
+  SLUG="$(slugify "$TITLE")"
+  SESS="$CRT_RECORDINGS_DIR/$(date +%F-%H%M)-$SLUG"
+  mkdir -p "$SESS"
+  printf '%s\n' "$TITLE" > "$SESS/title"
+  rm -f "$CRT_LAST"; remember session "$SESS"; remember title "$TITLE"; remember date "$(date +%F)"
+
+  echo "> $(t "recording" "registro") \"$TITLE\"  ->  $SESS"
+  # the marker stays in the folder: --resume knows by itself it was a speakerphone call
+  [ "$SPEAKERPHONE" = 1 ] && echo "phone on speakerphone: a single track (mic.wav) with both voices" > "$SESS/speakerphone"
+  # Launched with `open`, not as a child of the Terminal: so macOS treats the app as
+  # responsible for itself and uses ITS audio permission. As a plain child of the Terminal
+  # the system audio came out silent (-91 dB) even with the permissions on.
+  pkill -INT -f "$PATTERN" 2>/dev/null
+  open -n -a "$APPDIR" --args "$SESS"
+  REC_PID=""
+  for _ in $(seq 1 20); do
+    REC_PID="$(pgrep -nf "$PATTERN")" && break
+    sleep 0.5
+  done
+  [ -n "$REC_PID" ] || { echo "$(t "the recorder did not start" "il registratore non è partito")"; exit 1; }
+
+  if [ "$SPEAKERPHONE" = 1 ]; then
+    # the Mac's audio is not needed here: what matters is that the microphone started
+    for _ in $(seq 1 20); do
+      grep -Eq "microphone: [0-9]+ Hz|microphone (denied|not started)" "$SESS/recorder.log" 2>/dev/null && break
+      sleep 0.5
+    done
+    if ! grep -Eq "microphone: [0-9]+ Hz" "$SESS/recorder.log" 2>/dev/null; then
+      printf '\033[1;31m'
+      if [ "$CRT_UI_LANG" = it ]; then cat <<'NOMIC_IT'
+
+  ██  ATTENZIONE: IL MICROFONO NON STA REGISTRANDO  ██
+
+  In viva voce senza microfono non resta niente. Ferma (INVIO) e controlla:
+  Impostazioni di Sistema ▸ Privacy e sicurezza ▸ Microfono ▸ «Call Recorder».
+NOMIC_IT
+      else cat <<'NOMIC'
+
+  ██  WARNING: THE MICROPHONE IS NOT RECORDING  ██
+
+  On speakerphone, without the microphone nothing is left. Stop (ENTER) and check:
+  System Settings ▸ Privacy & Security ▸ Microphone ▸ «Call Recorder».
+NOMIC
+      fi
+      printf '\033[0m'
+    else
+      echo "   $(t "speakerphone: microphone only — keep the phone close, screen up" "viva voce: registro solo il microfono — tieni il telefono vicino, schermo in su")"
+    fi
+  else
+    # Check right away that the others' audio arrives: a quiet "tink", then look in the
+    # log whether the tap heard it. Better to know now than after the call.
+    for _ in $(seq 1 20); do
+      grep -q "system audio capture active" "$SESS/recorder.log" 2>/dev/null && break
+      sleep 0.5
+    done
+    sleep 1
+    afplay -v 0.3 /System/Library/Sounds/Tink.aiff 2>/dev/null
+    afplay -v 0.3 /System/Library/Sounds/Tink.aiff 2>/dev/null
+    sleep 3
+    if ! grep -Eq "system +-?[0-9.]+ dB" "$SESS/recorder.log" 2>/dev/null; then
+      printf '\033[1;31m'
+      if [ "$CRT_UI_LANG" = it ]; then cat <<'MUTE_IT'
+
+  ██  ATTENZIONE: L'AUDIO DEGLI ALTRI NON VIENE REGISTRATO  ██
+
+  Sto registrando solo il tuo microfono. macOS ha tolto (o non ha mai dato)
+  il permesso di catturare l'audio del Mac.
+
+  Per questa call: vai avanti lo stesso, la trascrizione ci sarà ma meno pulita.
+  Dopo la call: Impostazioni di Sistema ▸ Privacy e sicurezza ▸
+  Registrazione schermo e audio di sistema ▸ attiva «Call Recorder».
+  E avvia sempre la registrazione dal tuo Terminale o con il doppio clic.
+MUTE_IT
+      else cat <<'MUTE'
+
+  ██  WARNING: THE OTHERS' AUDIO IS NOT BEING RECORDED  ██
+
+  Only your microphone is being recorded. macOS has removed (or never gave)
+  the permission to capture the Mac's audio.
+
+  For this call: go on anyway, the transcript will be there but less clean.
+  After the call: System Settings ▸ Privacy & Security ▸
+  Screen & System Audio Recording ▸ turn on «Call Recorder».
+  And always start the recording from your own Terminal or by double-click.
+MUTE
+      fi
+      printf '\033[0m'
+    fi
+  fi
+
+  # not a child of this shell: no `wait`, we wait for it to disappear
+  stop_recorder() {
+    kill -INT "$REC_PID" 2>/dev/null
+    for _ in $(seq 1 40); do kill -0 "$REC_PID" 2>/dev/null || return 0; sleep 0.25; done
+  }
+  trap 'echo; stop_recorder' INT
+  echo
+  if [ -t 0 ]; then
+    echo "   ⏺  $(t "recording — press ENTER to stop" "in registrazione — premi INVIO per fermare")"
+    read -r _ 2>/dev/null || true
+  else
+    # no interactive terminal, no ENTER to wait for: stop with Ctrl-C / kill -INT
+    echo "   ⏺  $(t "recording — stop with" "in registrazione — ferma con"): kill -INT $REC_PID"
+    while kill -0 "$REC_PID" 2>/dev/null; do sleep 1; done
+  fi
+  trap - INT
+  stop_recorder
+  echo
+fi
+
+# ─────────────────────────────── 2. check that the system audio is there
+peak() { ffmpeg -hide_banner -i "$1" -af volumedetect -f null - 2>&1 | sed -n 's/.*max_volume: \(-*[0-9.]*\) dB.*/\1/p'; }
+if [ "$SPEAKERPHONE" = 0 ] && [ -f "$SESS/system.wav" ]; then
+  P="$(peak "$SESS/system.wav")"
+  if [ -n "$P" ] && awk "BEGIN{exit !($P < -55)}"; then
+    if [ "$CRT_UI_LANG" = it ]; then cat <<'WARN_IT'
+
+⚠️  La traccia dell'audio di sistema è muta.
+    macOS non ha dato a «Call Recorder» il permesso di catturare l'audio, oppure la
+    registrazione è stata avviata da un altro programma invece che dal tuo Terminale.
+    Apri: Impostazioni di Sistema ▸ Privacy e sicurezza ▸ Registrazione schermo e audio di sistema
+    e attiva «Call Recorder». Se non compare: lancia una volta setup-permissions.sh.
+
+WARN_IT
+    else cat <<'WARN'
+
+⚠️  The system-audio track is silent.
+    macOS has not given «Call Recorder» the permission to capture audio, or the recording
+    was started by another program instead of your own Terminal.
+    Open: System Settings ▸ Privacy & Security ▸ Screen & System Audio Recording
+    and turn on «Call Recorder». If it is not listed: run setup-permissions.sh once.
+
+WARN
+    fi
+  fi
+fi
+
+# ─────────────────────────────── 3. transcription
+echo "✎  $(t "transcribing on this Mac…" "trascrivo in locale…")"
+SP=(); [ "$SPEAKERPHONE" = 1 ] && SP=(--speakerphone)
+TRANSCRIPT="$(python3 "$BASE/transcribe.py" "$SESS" "$LANGUAGE" "${SP[@]+"${SP[@]}"}" "${FILTER_FLAGS[@]+"${FILTER_FLAGS[@]}"}")" || exit 1
+echo "   $TRANSCRIPT"
+remember transcript "$TRANSCRIPT"
+CALL_LANG="$(cat "$SESS/language" 2>/dev/null || echo "$LANGUAGE")"
+
+# ─────────────────────────────── 3b. disk space
+# An hour of call is ~2 GB of WAV. Once transcribed, the audio is kept compressed
+# (~20 MB per hour per track): enough to listen again and to transcribe again.
+compress() {
+  local ok=1 before after
+  before=$(du -sm "$SESS" | cut -f1)
+  local mic="you.m4a"; [ "$SPEAKERPHONE" = 1 ] && mic="call.m4a"
+  for pair in "mic.wav:$mic" "system.wav:others.m4a"; do
+    local src="$SESS/${pair%%:*}" dst="$SESS/${pair#*:}"
+    [ -f "$src" ] || continue
+    ffmpeg -y -hide_banner -loglevel error -i "$src" -ac 1 -ar 24000 -c:a aac -b:a 48k "$dst" \
+      && [ -s "$dst" ] || ok=0
+  done
+  if [ "$ok" = 1 ]; then
+    rm -f "$SESS/mic.wav" "$SESS/system.wav" "$SESS"/*-16k.wav \
+          "$SESS"/you-[0-9]*.wav "$SESS"/others-[0-9]*.wav "$SESS"/voices-[0-9]*.wav "$SESS"/*.wav.json
+    after=$(du -sm "$SESS" | cut -f1)
+    echo "   $(t "audio compressed" "audio compresso"): ${before} MB → ${after} MB"
+  else
+    echo "   ⚠️  $(t "compression failed: keeping the original WAVs" "compressione non riuscita: tengo i WAV originali")"
+  fi
+}
+if [ "$KEEP_WAV" = 0 ] && [ -s "$TRANSCRIPT" ]; then compress; fi
+
+DATE="$(sed -n 's/^date=//p' "$CRT_LAST" 2>/dev/null)"
+[ -n "$DATE" ] || DATE="$(basename "$SESS" | cut -c1-10)"
+NAME="$(basename "$SESS")"
+
+# copy of the transcript next to the notes (the original stays in the recording folder)
+TRANSCRIPT_COPY=""
+if [ "$CRT_TRANSCRIPTS_DIR" != off ]; then
+  mkdir -p "$CRT_TRANSCRIPTS_DIR"
+  TRANSCRIPT_COPY="$CRT_TRANSCRIPTS_DIR/$NAME-transcript.md"
+  { echo "# $(t "Transcript" "Trascrizione") — $TITLE"; echo; echo "$(t "Date" "Data"): $DATE"
+    echo "$(t "Recording" "Registrazione"): $SESS"; echo; cat "$TRANSCRIPT"; } > "$TRANSCRIPT_COPY"
+  echo "   $(t "transcript" "trascrizione") → $TRANSCRIPT_COPY"
+  remember transcript_copy "$TRANSCRIPT_COPY"
+fi
+
+[ "$MAKE_NOTE" = 1 ] || { echo "$(t "done (note skipped)." "fatto (nota saltata).")"; exit 0; }
+
+# ─────────────────────────────── 4. note
+echo "✎  $(t "writing the note with Claude…" "scrivo la nota con Claude…")"
+mkdir -p "$CRT_NOTES_DIR"
+NOTE="$CRT_NOTES_DIR/$NAME.md"
+TRANSCRIPT_REF="${TRANSCRIPT_COPY:-$TRANSCRIPT}"
+
+NOTE_OK=1
+BODY="$(python3 "$BASE/note.py" "$TRANSCRIPT" --lang "$CALL_LANG" "${SP[@]+"${SP[@]}"}")"
+if [ -z "$BODY" ]; then
+  NOTE_OK=0
+  echo "   ⚠️  $(t "note not generated — the full transcript is there." "nota non generata — la trascrizione però c'è, tutta.")"
+  BODY="_($(t "summary not generated: see the transcript" "sintesi non generata: vedi la trascrizione") \`$TRANSCRIPT_REF\`)_"
+fi
+
+{
+  if [ "$CRT_FRONTMATTER" = 1 ]; then
+    YTITLE="$(printf '%s' "$TITLE" | sed 's/"/\\"/g')"
+    cat <<FRONT
+---
+title: "$(t "Call" "Riunione") — $YTITLE"
+type: call-note
+tags: [call, transcript]
+date: $DATE
+language: $CALL_LANG
+source: "$NAME"
+---
+
+FRONT
+  fi
+  printf '%s\n\n' "$BODY"
+  echo "## $(t "Transcript" "Trascrizione")"
+  echo "$(t "Full and unedited in" "Grezza e completa in") \`$TRANSCRIPT_REF\`."
+} > "$NOTE"
+remember note "$NOTE"
+
+# ─────────────────────────────── 5. PDF
+OPEN_THIS="$NOTE"
+if [ "$NOTE_OK" = 1 ] && [ "$CRT_PDF_DIR" != off ]; then
+  echo "✎  $(t "laying out the PDF…" "impagino il PDF…")"
+  PDF_TITLE="$(python3 -c "import sys; t=sys.argv[1].strip(); print(t[:1].upper()+t[1:])" "$TITLE")"
+  # duration from the microphone audio: the log's "stopped after" counts only the system
+  # audio, and if that starts late it says 2 seconds
+  SECONDS_LONG=""
+  for f in "$SESS/mic.wav" "$SESS/call.m4a" "$SESS/you.m4a"; do
+    [ -f "$f" ] || continue
+    SECONDS_LONG="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f" 2>/dev/null | cut -d. -f1)"
+    break
+  done
+  [ -n "$SECONDS_LONG" ] || SECONDS_LONG="$(sed -n 's/.*stopped after \([0-9]*\).*/\1/p' "$SESS/recorder.log" 2>/dev/null | tail -1)"
+  SUBTITLE="$(date -j -f %F "$DATE" '+%-d %B %Y' 2>/dev/null || echo "$DATE")"
+  if [ -n "$SECONDS_LONG" ]; then
+    MINUTES=$(( (SECONDS_LONG + 30) / 60 ))
+    case "$MINUTES" in
+      0) SUBTITLE="$SUBTITLE · $(t "under a minute" "meno di un minuto")";;
+      1) SUBTITLE="$SUBTITLE · 1 $(t minute minuto)";;
+      *) SUBTITLE="$SUBTITLE · $MINUTES $(t minutes minuti)";;
+    esac
+  fi
+  PDF="$CRT_PDF_DIR/$DATE $(echo "$PDF_TITLE" | tr '/:' '--').pdf"
+  if python3 "$BASE/pdf.py" "$NOTE" "$PDF" "$PDF_TITLE" "$SUBTITLE" >/dev/null; then
+    echo "✓  PDF   → $PDF"
+    OPEN_THIS="$PDF"
+    remember pdf "$PDF"
+  else
+    echo "   ⚠️  $(t "PDF not made — the note is there." "PDF non riuscito — la nota c'è.")"
+  fi
+fi
+remember open "$OPEN_THIS"
+
+echo
+echo "✓  $(t "note " "nota ") → $NOTE"
+echo "✓  audio → $SESS"

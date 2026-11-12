@@ -1,0 +1,14 @@
+{
+  "name": "call-rec-transcript",
+  "description": "Record, transcribe and summarise calls on a Mac, locally.",
+  "owner": {
+    "name": "Marco Zarotti"
+  },
+  "plugins": [
+    {
+      "name": "call-rec-transcript",
+      "source": "./",
+      "description": "Record calls on your Mac, transcribe them locally with whisper.cpp, and get a note from Claude."
+    }
+  ]
+}

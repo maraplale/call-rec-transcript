@@ -1,0 +1,13 @@
+{
+  "name": "call-rec-transcript",
+  "displayName": "Call Rec Transcript",
+  "version": "0.1.0",
+  "description": "Record calls on your Mac (your mic and the others' audio on separate tracks), transcribe them locally with whisper.cpp, and get a clear note from Claude: decisions, commitments, numbers, open questions.",
+  "author": {
+    "name": "Marco Zarotti"
+  },
+  "homepage": "https://github.com/maraplale/call-rec-transcript",
+  "repository": "https://github.com/maraplale/call-rec-transcript",
+  "license": "MIT",
+  "keywords": ["call", "meeting", "recording", "transcription", "whisper", "macos", "notes", "speakerphone"]
+}

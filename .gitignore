@@ -1,0 +1,19 @@
+# recordings and audio: never in the repository
+recordings/
+registrazioni/
+*.wav
+*.m4a
+*.aiff
+*.mp3
+transcript.md
+.ultimo
+last-recording
+
+# builds
+*.app/
+.build-stamp
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
