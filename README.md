@@ -1,4 +1,3 @@
-<!-- Icon: add assets/icon.png (square PNG, 512 to 2048 px, under 2 MB) and this line will show it. -->
 <p align="center"><img src="assets/icon.png" alt="Call Rec Transcript icon" width="128"></p>
 
 # call-rec-transcript

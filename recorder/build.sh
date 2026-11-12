@@ -31,8 +31,8 @@ command -v swiftc >/dev/null || { echo "swiftc not found: install the Xcode comm
 
 mkdir -p "$DEST"
 # bump BUNDLE_REV when Info.plist or the signing below change: it forces a rebuild
-BUNDLE_REV=1
-HASH="$( (cat "$SRC/src/recorder.swift"; echo "bundle-rev-$BUNDLE_REV") | shasum -a 256 | cut -d' ' -f1)"
+BUNDLE_REV=2
+HASH="$( (cat "$SRC/src/recorder.swift" "$SRC/AppIcon.icns"; echo "bundle-rev-$BUNDLE_REV") | shasum -a 256 | cut -d' ' -f1)"
 
 if [ "$FORCE" = 0 ] && [ -x "$BIN" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$HASH" ]; then
   echo "Call Recorder.app is up to date (permissions kept)."
@@ -50,6 +50,7 @@ else
   <key>CFBundleIdentifier</key><string>io.github.maraplale.call-rec-transcript</string>
   <key>CFBundleExecutable</key><string>CallRecorder</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>LSMinimumSystemVersion</key><string>14.4</string>
   <key>NSMicrophoneUsageDescription</key>
@@ -74,6 +75,7 @@ ENTITLEMENTS
   swiftc -O -swift-version 5 \
     -framework AVFoundation -framework CoreAudio -framework AudioToolbox -framework Foundation \
     -o "$BIN" "$SRC/src/recorder.swift"
+  cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
   # ad-hoc signature: every new build has a new fingerprint, so macOS asks again for consent
   codesign --force --sign - --entitlements "$ENT" "$APP"
   rm -f "$ENT"
