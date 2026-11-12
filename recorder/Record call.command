@@ -43,7 +43,9 @@ echo
 LAST="$(sed -n 's/^open=//p' "$CRT_LAST" 2>/dev/null)"
 if [ -n "$LAST" ] && [ -f "$LAST" ]; then
   read -r -p "  $(t "Open the summary? [enter = yes, n = no]  " "Apro la sintesi? [invio = sì, n = no]  ")" R
-  [ "$R" != "n" ] && open "$LAST"
+  case "$(printf '%s' "$R" | tr '[:upper:]' '[:lower:]' | tr -d ' ')" in
+    ""|y|yes|s|si|sì|ok) open "$LAST" ;;
+  esac
 fi
 
 echo
