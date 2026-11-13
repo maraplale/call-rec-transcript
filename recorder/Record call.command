@@ -8,6 +8,13 @@ eval "$(python3 "$HERE/crt_config.py" --shell)"
 t() { if [ "$CRT_UI_LANG" = it ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 [ -x "$HERE/rec" ] || { echo "rec not found next to this launcher: $HERE"; read -r; exit 1; }
 
+# Keep this window in front until the title is typed. Another app in front (a chat window
+# that finishes its turn, for one) can take the focus back a few seconds after the
+# double-click, and the window then waits hidden behind it. Stops after 20 s at most.
+front() { [ "${TERM_PROGRAM:-}" = Apple_Terminal ] && osascript -e 'tell application "Terminal" to activate' >/dev/null 2>&1; }
+front
+( for _ in 1 2 3 4 5 6 7 8 9 10; do sleep 2; front; done ) & KEEP_FRONT=$!
+
 printf '\033[1m'
 if [ "${REC_SPEAKERPHONE:-0}" = 1 ]; then
   echo
@@ -33,6 +40,7 @@ echo "  $(t "If they say no: press ENTER to stop, and take notes by hand." "Se d
 echo
 
 read -r -p "  $(t "What is this call about?  " "Di che riunione si tratta?  ")" TITLE
+kill "$KEEP_FRONT" 2>/dev/null
 [ -z "$TITLE" ] && TITLE="$(t call riunione)"
 echo
 
