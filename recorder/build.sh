@@ -14,7 +14,12 @@
 # again) only when the Swift source has changed.
 set -euo pipefail
 SRC="$(cd "$(dirname "$0")" && pwd)"
-eval "$(python3 "$SRC/crt_config.py" --shell)"
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$SRC/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 python3 "$SRC/crt_config.py" --init >/dev/null
 
 FORCE=0; [ "${1:-}" = "--force" ] && FORCE=1
@@ -32,7 +37,8 @@ command -v swiftc >/dev/null || { echo "swiftc not found: install the Xcode comm
 mkdir -p "$DEST"
 # bump BUNDLE_REV when Info.plist or the signing below change: it forces a rebuild
 BUNDLE_REV=2
-HASH="$( (cat "$SRC/src/recorder.swift" "$SRC/AppIcon.icns"; echo "bundle-rev-$BUNDLE_REV") | shasum -a 256 | cut -d' ' -f1)"
+ICON_PNG="$SRC/../assets/icon.png"
+HASH="$( (cat "$SRC/src/recorder.swift" "$ICON_PNG"; echo "bundle-rev-$BUNDLE_REV") | shasum -a 256 | cut -d' ' -f1)"
 
 if [ "$FORCE" = 0 ] && [ -x "$BIN" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$HASH" ]; then
   echo "Call Recorder.app is up to date (permissions kept)."
@@ -75,7 +81,14 @@ ENTITLEMENTS
   swiftc -O -swift-version 5 \
     -framework AVFoundation -framework CoreAudio -framework AudioToolbox -framework Foundation \
     -o "$BIN" "$SRC/src/recorder.swift"
-  cp "$SRC/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+  # the app icon is made here from assets/icon.png (1024 px), with the macOS tools
+  ICONSET="$(mktemp -d)/AppIcon.iconset"; mkdir -p "$ICONSET"
+  for SZ in 16 32 128 256 512; do
+    sips -z $SZ $SZ "$ICON_PNG" --out "$ICONSET/icon_${SZ}x${SZ}.png" >/dev/null
+    sips -z $((SZ*2)) $((SZ*2)) "$ICON_PNG" --out "$ICONSET/icon_${SZ}x${SZ}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+  rm -rf "$(dirname "$ICONSET")"
   # ad-hoc signature: every new build has a new fingerprint, so macOS asks again for consent
   codesign --force --sign - --entitlements "$ENT" "$APP"
   rm -f "$ENT"

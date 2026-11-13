@@ -6,7 +6,12 @@
 #   ./setup-permissions.sh [seconds-to-wait]     (default 100)
 set -uo pipefail
 BASE="$(cd "$(dirname "$0")" && pwd)"
-eval "$(python3 "$BASE/crt_config.py" --shell)"
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 t() { if [ "$CRT_UI_LANG" = it ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 APPDIR="$CRT_INSTALL_DIR/Call Recorder.app"
 [ -d "$APPDIR" ] || { echo "$(t "Call Recorder.app not found: run build.sh first" "Call Recorder.app non trovata: lancia prima build.sh")"; exit 1; }

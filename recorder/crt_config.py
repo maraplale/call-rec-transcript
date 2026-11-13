@@ -8,12 +8,11 @@ Values come from, in order of priority:
 
 The config file is plain KEY=value lines; # starts a comment; ~ is expanded.
 
-  crt_config.py --shell   print `export KEY='value'` lines for bash (`eval` them)
+  crt_config.py --shell   print KEY=value lines; the bash scripts export them one by one
   crt_config.py --init    write a commented config file if there is none yet
   crt_config.py --show    print the effective configuration
 """
 import os
-import shlex
 import sys
 
 STATE_DIR_DEFAULT = "~/.config/call-rec-transcript"
@@ -154,7 +153,7 @@ def main():
     values = load()
     if arg == "--shell":
         for key, value in values.items():
-            print("export %s=%s" % (key, shlex.quote(value)))
+            print("%s=%s" % (key, value.replace("\n", " ")))
     else:
         width = max(len(k) for k in values)
         for key, value in values.items():

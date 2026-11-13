@@ -6,7 +6,12 @@
 #   ./get-model.sh small      smaller and faster, less accurate (~490 MB)
 set -euo pipefail
 BASE="$(cd "$(dirname "$0")" && pwd)"
-eval "$(python3 "$BASE/crt_config.py" --shell)"
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 NAME="${1:-large-v3-turbo}"
 case "$NAME" in large-v3-turbo|medium|small) ;; *) echo "model: large-v3-turbo, medium or small"; exit 1;; esac
 FILE="ggml-$NAME.bin"

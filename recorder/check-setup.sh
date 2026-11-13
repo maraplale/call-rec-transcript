@@ -3,7 +3,12 @@
 # Prints one line per requirement: OK, or what to do. Exit code 0 if everything is there.
 set -uo pipefail
 BASE="$(cd "$(dirname "$0")" && pwd)"
-eval "$(python3 "$BASE/crt_config.py" --shell)"
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 FAIL=0
 ok()  { printf "  ✓ %s\n" "$1"; }
 bad() { printf "  ✗ %s\n      → %s\n" "$1" "$2"; FAIL=1; }

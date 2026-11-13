@@ -5,7 +5,12 @@
 # The Mac speaks a sentence (it plays "the others"); speak into the microphone too.
 set -uo pipefail
 BASE="$(cd "$(dirname "$0")" && pwd)"
-eval "$(python3 "$BASE/crt_config.py" --shell)"
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 APPDIR="$CRT_INSTALL_DIR/Call Recorder.app"
 [ -d "$APPDIR" ] || { echo "Call Recorder.app not found: run build.sh first"; exit 1; }
 PATTERN="Call Recorder.app/Contents/MacOS/CallRecorder"

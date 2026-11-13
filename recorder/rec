@@ -21,7 +21,12 @@
 # notes folder, transcript copy, PDF, audio compressed, pointer in .../last-recording.
 set -uo pipefail
 BASE="$(cd "$(dirname "$0")" && pwd)"
-eval "$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$BASE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 # A .command launched from the Finder may inherit a non-UTF-8 locale: bash then mangles
 # non-ASCII bytes. Force UTF-8 (after the configuration has read the real locale).
 if [ "$CRT_UI_LANG" = it ]; then export LC_ALL="it_IT.UTF-8"; else export LC_ALL="en_US.UTF-8"; fi

@@ -4,7 +4,12 @@
 # "Record speakerphone.command" runs this same file with REC_SPEAKERPHONE=1.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE" || exit 1
-eval "$(python3 "$HERE/crt_config.py" --shell)"
+# configuration: plain KEY=value lines, exported one by one (nothing is evaluated)
+CRT_CFG="$(python3 "$HERE/crt_config.py" --shell)" || { echo "cannot read the configuration"; exit 1; }
+while IFS= read -r CRT_L; do
+  case "${CRT_L%%=*}" in CRT_*) export "${CRT_L%%=*}=${CRT_L#*=}" ;; esac
+done <<< "$CRT_CFG"
+unset CRT_CFG CRT_L
 t() { if [ "$CRT_UI_LANG" = it ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
 [ -x "$HERE/rec" ] || { echo "rec not found next to this launcher: $HERE"; read -r; exit 1; }
 
