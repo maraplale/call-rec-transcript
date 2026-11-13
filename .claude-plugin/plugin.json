@@ -8,6 +8,18 @@
   },
   "homepage": "https://github.com/maraplale/call-rec-transcript",
   "repository": "https://github.com/maraplale/call-rec-transcript",
+  "documentationUrl": "https://github.com/maraplale/call-rec-transcript#readme",
+  "supportUrl": "https://github.com/maraplale/call-rec-transcript/issues",
+  "privacyPolicyUrl": "https://github.com/maraplale/call-rec-transcript/blob/main/PRIVACY.md",
   "license": "MIT",
-  "keywords": ["call", "meeting", "recording", "transcription", "whisper", "macos", "notes", "speakerphone"]
+  "keywords": [
+    "call",
+    "meeting",
+    "recording",
+    "transcription",
+    "whisper",
+    "macos",
+    "notes",
+    "speakerphone"
+  ]
 }

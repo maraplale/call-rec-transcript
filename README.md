@@ -155,6 +155,7 @@ transcript, note, PDF), so you, or Claude, can always find it.
 - Only the **text** of the transcript is sent to Claude, to write the note, and only if
   notes are on (`CRT_NOTE=off` turns them off). Through the `claude` CLI it runs with no
   tools and is not saved as a session.
+- Full details: [PRIVACY.md](PRIVACY.md).
 - Nothing is uploaded anywhere else. Where your notes and PDFs are synced (iCloud, Obsidian
   Sync...) is your choice.
 
